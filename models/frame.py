@@ -1,5 +1,5 @@
-from ..services.utils import myfmad
-from numpy import nanmedian, ndarray
+from services.utils import myfmad
+from numpy import nanmedian, ndarray, array as npArray
 from nucleus import Nucleus
 
 
@@ -13,7 +13,7 @@ class Frame(object):
         self.voxel = voxel
 
     def getNormalizedVoxel(self) -> ndarray:
-        return map(self.__normalizeSlice, self.voxel)
+        return npArray(list(map(self.__normalizeSlice, self.voxel)))
 
     def __normalizeSlice(self, voxelSlice):
         inter = voxelSlice - nanmedian(voxelSlice)

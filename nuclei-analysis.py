@@ -1,16 +1,15 @@
-import getopt
 import glob as glob
-
-import matplotlib
-import matplotlib.pylab as plt
-import numpy as np
 import pandas as pd
 
 from mpl_toolkits.mplot3d import Axes3D
 from sklearn.cluster import KMeans
 from tqdm import tqdm
+
+import numpy as np
+import matplotlib
+import matplotlib.pylab as plt
 from models.analysis import Analysis
-from services.utils import myfmad, rm_outliers
+from services.utils import rm_outliers
 
 matplotlib.use('Qt5Agg')
 
@@ -36,12 +35,14 @@ voxelNormalized = frame.getNormalizedVoxel()
 
 tresh = voxelNormalized > cutoff_sphere_z
 
-locations = []
-for zSlice in range(len(voxelNormalized)):
-    # all coordinates that are preserved after masking
-    x, y = np.where(tresh[zSlice])
-    tab = np.array([x, y, zSlice*np.ones(len(x))]).T
-    locations.append(tab)
+
+def getLocations(slideId: int):
+    x, y = np.where(tresh[slideId])  # all coordinates that are preserved after masking
+    tab = np.array([x, y, slideId*np.ones(len(x))]).T
+    return tab
+
+
+locations = np.array(list(map(getLocations, range(len(voxelNormalized)))))
 locations = np.vstack(locations)
 
 # Recenter the axes + Z axes converted to pixel
@@ -52,14 +53,18 @@ locations[:, 2] *= analyzis.imageData.slicePixelRatio
 
 # Removes all noises
 borders = np.array_split(np.arange(len(locations)), 5000)
-all_min_dist = []
-for index in tqdm(borders):
+
+
+def getDists(index):
     sub_table = locations[index]
     dist = (sub_table[:, 0]-locations[:, 0][:, np.newaxis])**2+(sub_table[:, 1] -
                                                                 locations[:, 1][:, np.newaxis])**2+(sub_table[:, 2]-locations[:, 2][:, np.newaxis])**2
     dist = np.where(dist == 0, np.nan, dist)
     dist = np.nanmin(dist, axis=0)
-    all_min_dist.append(dist)
+    return dist
+
+
+all_min_dist = list(map(getDists, tqdm(borders)))
 all_min_dist = np.array(all_min_dist)
 all_min_dist = np.sqrt(np.hstack(all_min_dist))
 # actual noise removal

@@ -1,4 +1,4 @@
-from ..services.cziservice import getDistanceMetaData
+from services.cziservice import getDistanceMetaData
 from numpy import ndarray, memmap, shape
 from sizes import ValuesAxis
 
@@ -18,8 +18,8 @@ class ImageData(object):
         self.distances = ValuesAxis[float](getDistanceMetaData(metadata, "X") * 10**7,
                                            getDistanceMetaData(metadata, "Y") * 10**7,
                                            getDistanceMetaData(metadata, "Z") * 10**6)
-        self.pixelRatio = self.distanceX * self.distanceY
-        self.slicePixelRatio = self.pixelRatio * self.distanceZ
+        self.pixelRatio = self.distances.x * self.distances.y
+        self.slicePixelRatio = self.pixelRatio * self.distances.z
 
     def getVoxelFrame(self, frame: int) -> ndarray:
         return self.img[0, frame, 0, :, :, :, 0]
