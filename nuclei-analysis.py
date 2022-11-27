@@ -24,14 +24,13 @@ analyzis = Analysis(pathFile)
 time_index = 10
 
 cutoff_sphere_z = 5  # fixed with the histogram distribution // Intensité du noyau
-cutoff_spot_z = 40  # fixed with the histogram distribution // Intensité des spots
 tresh_volume = 500  # minimum element for a nucleus to be detected as a nucleus
 tresh_dist = np.sqrt(3)  # minimum distance for the nearest neighbor to be valid
 k_cluster = 80  # amount of nucleus we're looking for
 radius_cell_pxl = 7.5  # radius of a nucleus in pxl
 vicinity = 2 #proximity
 
-time_indexes = [10,11,12]
+time_indexes = [13]
 for time_index in time_indexes:
     frame = analyzis.frames[time_index]
     voxel = frame.voxel
@@ -155,6 +154,7 @@ for time_index in time_indexes:
     spot_table = []
     all_tresh = []
     voxel_map_bulle = np.zeros(np.shape(voxelNormalized)).astype(bool)
+    penality=0
     for counter in np.arange(len(centers_bulle)):
         bulle = centers_bulle[counter]
         mask_bulle = np.sqrt((x-bulle[1])**2+(y-bulle[0])**2+((z-bulle[2])*analyzis.imageData.slicePixelRatio)**2)<(1.5*radius_cell_pxl)
@@ -163,13 +163,16 @@ for time_index in time_indexes:
         all_tresh.append(val_sup)
         spotz,spotx,spoty = np.where((voxelNormalized>=val_sup)&(mask_bulle))
         spoti = np.array([voxelNormalized[zi,xi,yi] for xi,yi,zi in zip(spotx,spoty,spotz)])
-        print('[INFO] Treshold set to I_lim = %.2f for spot in nucleus %.0f. Spots nb = %.0f'%(val_sup,counter,len(spotx)))
-        spotb = np.ones(len(spotz))*(counter+1)
-        spott = np.ones(len(spotz))*time_index
-        spotcx = np.ones(len(spotz))*bulle[0]
-        spotcy = np.ones(len(spotz))*bulle[1]
-        spotcz = np.ones(len(spotz))*bulle[2]
-        spot_table.append(np.array([spoti,spotx,spoty,spotz,spotb,spotcx,spotcy,spotcz,spott]).T)
+        print('[INFO] Treshold set to I_lim = %.2f for spot in nucleus %.0f. Spots nb = %.0f'%(val_sup,counter+1-penality,len(spotx)))
+        if len(spotz):
+            spotb = np.ones(len(spotz))*(counter+1-penality)
+            spott = np.ones(len(spotz))*time_index
+            spotcx = np.ones(len(spotz))*bulle[0]
+            spotcy = np.ones(len(spotz))*bulle[1]
+            spotcz = np.ones(len(spotz))*bulle[2]
+            spot_table.append(np.array([spoti,spotx,spoty,spotz,spotb,spotcx,spotcy,spotcz,spott]).T)
+        else:
+            penality+=1
     spot_table = np.vstack(spot_table).astype('int')
     spot_table = pd.DataFrame(spot_table,columns=['spot_i','spot_x','spot_y','spot_z','cell','cell_x','cell_y','cell_z','time'])
 
@@ -199,8 +202,10 @@ for timeIndex1,timeIndex2 in zip(time_indexes[0:-1],time_indexes[1:]):
     c+=1
     uniqueVals1 = dataframe.loc[dataframe['time']==timeIndex1,['cell_x','cell_y','cell_z','cell']]
     uniqueVals2 = dataframe.loc[dataframe['time']==timeIndex2,['cell_x','cell_y','cell_z','cell']]
-    uniqueCellsByTimeFrame1 = np.array(uniqueVals1.loc[~uniqueVals1.duplicated(subset=['cell']),['cell_x','cell_y','cell_z']])
-    uniqueCellsByTimeFrame2 = np.array(uniqueVals2.loc[~uniqueVals2.duplicated(subset=['cell']),['cell_x','cell_y','cell_z']])
+    uniqueCellsByTimeFrame1 = np.array(uniqueVals1.drop_duplicates(subset=['cell'])[['cell_x','cell_y','cell_z']])
+    uniqueCellsByTimeFrame2 = np.array(uniqueVals2.drop_duplicates(subset=['cell'])[['cell_x','cell_y','cell_z']])
+
+    print(len(uniqueCellsByTimeFrame1),len(uniqueCellsByTimeFrame2))
 
     dist_x = uniqueCellsByTimeFrame1[:,0]-uniqueCellsByTimeFrame2[:,0][:,np.newaxis]
     dist_y = uniqueCellsByTimeFrame1[:,1]-uniqueCellsByTimeFrame2[:,1][:,np.newaxis]
@@ -220,14 +225,14 @@ for timeIndex1,timeIndex2 in zip(time_indexes[0:-1],time_indexes[1:]):
     
     name2 = np.zeros(len(index2)).astype('int')
     name2[match2_to_1==0] = mapping[timeIndex1][:,1][index2[match2_to_1==0]]
-    name2[match2_to_1!=0] = np.max(name2)+np.arange(sum(match2_to_1!=0))
+    name2[match2_to_1!=0] = np.max(name2)+np.arange(1,1+sum(match2_to_1!=0))
         
     mapping[timeIndex2] = np.array([np.arange(len(index2)),name2]).T
 
-for timeIndex,values in mapping.items():
-    sub_dataframe = np.array(dataframe.loc[dataframe['time']==timeIndex,'cell'])
-    real_cell_name = mapping[timeIndex][:,1][sub_dataframe-1]
-    dataframe.loc[dataframe['time']==timeIndex,'cell'] = real_cell_name
+for timeIndex2,values in mapping.items():
+    sub_dataframe = np.array(dataframe.loc[dataframe['time']==timeIndex2,'cell'])
+    real_cell_name = mapping[timeIndex2][:,1][sub_dataframe-1]
+    dataframe.loc[dataframe['time']==timeIndex2,'cell'] = real_cell_name
 
 dataframe.to_csv('./Output_table_final.csv')
 
@@ -265,6 +270,22 @@ ax.scatter((spot_table['spot_z']-analyzis.imageData.sizes.z/2)*analyzis.imageDat
 
 plt.xlim(-256, 256)
 plt.show()
+
+ax = plt.figure().add_subplot(projection='3d')
+ax.scatter(
+    locations_cells[mask_cluster][::10,2],
+    locations_cells[mask_cluster][::10,1],
+    locations_cells[mask_cluster][::10,0],
+    c=labels_fitted[mask_cluster][::10],
+    s=3,cmap='tab20',alpha=0.15)
+ax.scatter(centers[:,2],centers[:,1],centers[:,0],color='b',alpha=1)
+ax.scatter(spots_locations[:,2],spots_locations[:,1],spots_locations[:,0],color='r',alpha=0.5,s=25)
+ax.scatter((output['spot_z']-analyzis.imageData.sizes.z/2)*analyzis.imageData.slicePixelRatio,output['spot_y']-analyzis.imageData.sizes.y/2,output['spot_x']-analyzis.imageData.sizes.x/2,color='k',alpha=1,s=5)
+ax.scatter((spot_table['spot_z']-analyzis.imageData.sizes.z/2)*analyzis.imageData.slicePixelRatio,spot_table['spot_y']-analyzis.imageData.sizes.y/2,spot_table['spot_x']-analyzis.imageData.sizes.x/2,color='purple',alpha=1,s=5)
+
+plt.xlim(-256, 256)
+plt.show()
+
 
 newTime = time()
 print("--- %s seconds ---" % (newTime - startTime))
