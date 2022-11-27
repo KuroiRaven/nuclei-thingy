@@ -9,11 +9,15 @@ import numpy as np
 import matplotlib
 import matplotlib.pylab as plt
 from models.analysis import Analysis
+from models.returnValueThread import ReturnValueThread
 from services.utils import rm_outliers
+from time import time
 
 matplotlib.use('Qt5Agg')
 
 pathFile = '../Bursting trial_34.czi'
+
+startTime = time()
 
 analyzis = Analysis(pathFile)
 
@@ -55,8 +59,8 @@ locations[:, 2] *= analyzis.imageData.slicePixelRatio
 borders = np.array_split(np.arange(len(locations)), 5000)
 
 
-def getDists(index):
-    sub_table = locations[index]
+def getDists(val):
+    sub_table = locations[val]
     dist = (sub_table[:, 0]-locations[:, 0][:, np.newaxis])**2+(sub_table[:, 1] -
                                                                 locations[:, 1][:, np.newaxis])**2+(sub_table[:, 2]-locations[:, 2][:, np.newaxis])**2
     dist = np.where(dist == 0, np.nan, dist)
@@ -64,11 +68,14 @@ def getDists(index):
     return dist
 
 
-all_min_dist = list(map(getDists, tqdm(borders)))
-all_min_dist = np.array(all_min_dist)
-all_min_dist = np.sqrt(np.hstack(all_min_dist))
+threadedDists = [ReturnValueThread(target=getDists, args=[val]) for val in borders]
+threadedDistsStarted = [thread.start() for thread in threadedDists]
+allMinDistThreaded = [thread.join() for thread in threadedDists]
+
+allMinDist = np.array(allMinDistThreaded)
+allMinDist = np.sqrt(np.hstack(allMinDist))
 # actual noise removal
-locations_cells = locations[all_min_dist <= tresh_dist]
+locations_cells = locations[allMinDist <= tresh_dist]
 
 # creates a DF that contains the coordinates with names for each dimension
 df = pd.DataFrame(locations_cells, columns=['x', 'y', 'z'])
@@ -185,6 +192,9 @@ ax.scatter(spots_locations[:, 2], spots_locations[:, 1],
            spots_locations[:, 0], color='r', alpha=1)
 plt.xlim(-256, 256)
 plt.show()
+
+newTime = time()
+print("--- %s seconds ---" % (newTime - startTime))
 
 for slice in range(70):
     #slice = 39
