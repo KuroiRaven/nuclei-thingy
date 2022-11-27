@@ -1,12 +1,14 @@
-from imageData import ImageData
+from czifile import CziFile
+from czifile import imread as cziRead
+
 from frame import Frame
-from czifile import CziFile, imread as cziRead
+from imageData import ImageData
 
 
 class Analysis(object):
-    pathFile: str
-    imageData: ImageData
-    frames: list[Frame]
+    #pathFile: str
+    #imageData: ImageData
+    #frames: list[Frame]
 
     def __init__(self, pathFile: str):
         self.pathFile = pathFile

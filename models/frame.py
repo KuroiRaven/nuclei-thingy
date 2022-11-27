@@ -1,12 +1,14 @@
+from numpy import array as npArray
+from numpy import nanmedian, ndarray
 from services.utils import myfmad
-from numpy import nanmedian, ndarray, array as npArray
+
 from nucleus import Nucleus
 
 
 class Frame(object):
-    frameId: int
-    voxel: ndarray
-    nuclei: list[Nucleus]
+    #frameId: int
+    #voxel: ndarray
+    #nuclei: list[Nucleus]
 
     def __init__(self, frameId: int, voxel: ndarray):
         self.frameId = frameId

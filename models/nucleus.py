@@ -1,9 +1,9 @@
 class Nucleus(object):
-    nucId: int
-    posX: int
-    poxY: int
-    posZ: int
-    spots: list
+   #nucId: int
+   #posX: int
+   #poxY: int
+   #posZ: int
+   #spots: list
 
     def __init__(self, nucId, posX, posY, posZ):
         self.nucId = nucId
