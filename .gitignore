@@ -1,1 +1,8 @@
 **/__pycache__
+**/*.csv
+debug.py
+jited
+setSysPath
+threadsTests.py
+.vscode
+help_benj.py
