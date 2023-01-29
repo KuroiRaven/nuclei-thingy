@@ -1,12 +1,12 @@
 from numba import prange, njit
-from numpy import sqrt, float32, zeros, inf, where, sum, array, median, shape, ones
-from .utils import rm_outliers
+from numpy import sqrt, float32 as npFloat32, float64 as npFloat64, zeros, inf, where, sum, array, median, shape, ones, bool8, ndarray, empty
+from .utils import rmOutliersInterWithBorders, filter3D
 
 
 @njit(parallel=True, nogil=True)
 def getDistances(locations):
     numberLocations = locations.shape[0]
-    allMinDists = zeros(numberLocations, dtype=float32)
+    allMinDists = zeros(numberLocations, dtype=npFloat32)
     for i in prange(numberLocations):
         location = locations[i, :]
         currentMinDist = inf
@@ -43,7 +43,7 @@ def getSpotsNucleus(nucleusId, threshold, maskNucleus, voxelNormalized, frameId,
     onesSpots = ones(len(spotZ))
     # print('[INFO] Treshold set to I_lim = %.2f for spot in nucleus %.0f. Spots nb = %.0f' % (val_sup, counter+1-penality, len(spotx)))
     if len(spotZ):
-        spotid = onesSpots * (nucleusId+1-penality)
+        spotid = onesSpots * (nucleusId + 1 - penality)
         spotFrame = onesSpots * frameId
         parentNucleus = onesSpots * nucleusId
         return (array([spoti, spotX, spotY, spotZ, spotid, parentNucleus, spotFrame]).T, 0)
@@ -52,21 +52,27 @@ def getSpotsNucleus(nucleusId, threshold, maskNucleus, voxelNormalized, frameId,
 
 
 @njit(parallel=True, nogil=True)
-def getSpots(nucleiCenters, positions, voxelNormalized, slicePixelRatio, radiusCellPixel, frameId):
+def getSpots(nucleiCenters: ndarray, positions: tuple[ndarray, ndarray, ndarray], voxelNormalized: ndarray, slicePixelRatio: float, radiusCellPixel: float, frameId: int):
     penality = 0
     numberNuclei = nucleiCenters.shape[0]
-    thresholds = zeros(numberNuclei, dtype=float32)
+    thresholds = []
     allSpots = []
-    voxelMaskNuclei = zeros(shape(voxelNormalized)).astype(bool)
+    voxelMaskNuclei = zeros(shape(voxelNormalized), dtype=bool8)
     for i in prange(numberNuclei):
         nucleus = nucleiCenters[i]
-        maskNucleus = sqrt((positions.x-nucleus[1])**2+(positions.y-nucleus[0])**2+((positions.z-nucleus[2])*slicePixelRatio)**2) < (1.5*radiusCellPixel)
+        maskNucleus: ndarray = sqrt((positions[0]-nucleus[1])**2+(positions[1]-nucleus[0])**2+((positions[2]-nucleus[2])*slicePixelRatio)**2) < (1.5*radiusCellPixel)
         voxelMaskNuclei = voxelMaskNuclei | maskNucleus
-        threshold = rm_outliers(voxelNormalized[maskNucleus], kind='inter', return_borders=True)[2]
-        thresholds[i] = threshold
-        spotsNucleus = getSpotsNucleus(i, threshold, maskNucleus, voxelNormalized, frameId, penality)
+        print(maskNucleus)
+        maskedVoxelNormalized = filter3D(voxelNormalized, maskNucleus)  # array([voxelNormalized[pixelLine][maskNucleus[pixelLine]] for pixelLine in range(voxelNormalized.shape[0])])
+        # voxelNormalized[maskNucleus]
+        threshold = rmOutliersInterWithBorders(maskedVoxelNormalized)[2]
+        thresholds.append(threshold)
+        spotsNucleus = getSpotsNucleus(i, threshold, maskNucleus, maskedVoxelNormalized, frameId, penality)
         if spotsNucleus[1] > 0:
             penality += spotsNucleus[1]
         else:
             allSpots.append(spotsNucleus[0])
-    return (allSpots, thresholds, voxelMaskNuclei)
+
+    thresholdsAsArray = array(thresholds)
+
+    return (allSpots, thresholdsAsArray, voxelMaskNuclei)

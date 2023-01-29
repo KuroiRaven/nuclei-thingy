@@ -1,51 +1,58 @@
 import matplotlib.pylab as plt
 import numpy as np
-from numbagg import nanmean, nanstd
-from numba import njit
-from scipy import nanmedian
+from numba import njit, prange, vectorize, int32, int64, float32, float64
 
 
-def myfmad(array, axis=0, sigma_conv=True):
-    """"""
+@vectorize([int32(int32, int32),
+            int64(int64, int64),
+            float32(float32, float32),
+            float64(float64, float64)], )
+def sumAxisZero(x, y):
+    return x + y
+
+
+@njit
+def np_apply_along_axis(func1d, axis, arr):
+    assert arr.ndim == 2
+    assert axis in [0, 1]
     if axis == 0:
-        step = abs(array-np.nanmedian(array, axis=axis))
+        result = np.empty(arr.shape[1])
+        for i in range(len(result)):
+            result[i] = func1d(arr[:, i])
     else:
-        step = abs(array-np.nanmedian(array, axis=axis)[:, np.newaxis])
-    return np.nanmedian(step, axis=axis)*[1, 1.48][int(sigma_conv)]
-# kind = inter => return_border=true <== mask de toutes les valeurs mais on veut la valeur index 2
+        result = np.empty(arr.shape[0])
+        for i in range(len(result)):
+            result[i] = func1d(arr[i, :])
+    return result
 
 
 @njit()
-def rm_outliers(array: np.ndarray, m=1.5, kind='sigma', axis=0, return_borders=False) -> tuple[np.ndarray, np.ndarray, float, float]:
-    if m != 0:
-        array[array == np.inf] = np.nan
-        #array[array!=array] = np.nan
+def median(array, axis=0):
+    return np_apply_along_axis(np.median, axis, array)
 
-        if kind == 'inter':
-            interquartile = nan_percentile_axis0(array, 75) - nan_percentile_axis0(array, 25)
-            inf = nan_percentile_axis0(array, 25)-m*interquartile
-            sup = nan_percentile_axis0(array, 75)+m*interquartile
-            mask = (array >= inf) & (array <= sup)
-        if kind == 'sigma':
-            sup = nanmean(array, axis=axis) + m * \
-                nanstd(array, axis=axis)
-            inf = nanmean(array, axis=axis) - m * \
-                nanstd(array, axis=axis)
-            mask = abs(array-nanmean(array, axis=axis)) <= m * \
-                nanstd(array, axis=axis)
-        if kind == 'mad':
-            median = nanmedian(array, axis=axis)
-            mad = nanmedian(abs(array-median))
-            sup = median+m * mad * 1.48
-            inf = median-m * mad * 1.48
-            mask = abs(array-median) <= m * mad * 1.48
-    else:
-        mask = np.ones(len(array)).astype('bool')
 
-    if return_borders:
-        return (mask,  array[mask], sup, inf)
+@njit()
+def nanmedian(array, axis=0):
+    return np_apply_along_axis(np.median, axis, array)
+
+
+@njit()
+def nanmean(array, axis=0):
+    return np_apply_along_axis(np.mean, axis, array)
+
+
+@njit()
+def nanstd(array, axis=0):
+    return np_apply_along_axis(np.nanstd, axis, array)
+
+
+def myfmad(array, axis=0, sigma_conv=True):
+    if axis == 0:
+        step = np.abs(array-nanmedian(array, axis=axis))
     else:
-        return (mask,  array[mask], None, None)
+        step = np.abs(array-nanmedian(array, axis=axis)[:, np.newaxis])
+    return np.nanmedian(step, axis=axis)*[1, 1.48][int(sigma_conv)]
+# kind = inter => return_border=true <== mask de toutes les valeurs mais on veut la valeur index 2
 
 
 @njit()
@@ -66,13 +73,144 @@ def nan_percentile_axis0(arr, percentiles):
             values as passed in percentiles
 
     """
+
     shape = arr.shape
     arr = arr.reshape((arr.shape[0], -1))
-    out = np.empty((len(percentiles), arr.shape[1]))
+    out = np.empty((percentiles, arr.shape[1]))
     for i in range(arr.shape[1]):
         out[:, i] = np.nanpercentile(arr[:, i], percentiles)
     shape = (out.shape[0], *shape[1:])
     return out.reshape(shape)
+
+
+@njit(parallel=True, nogil=True)
+def filter3D(array, mask):
+    if (array.shape != mask.shape):
+        raise Exception('Array and mask dimensions are different, please ensure that you chose the right ones')
+
+    shape = array.shape
+    slices, width, length = shape
+    output = np.empty(shape)
+
+    for i in prange(slices):
+        for j in range(width):
+            arrayOneD = array[i][j]
+            maskOneD = mask[i][j]
+            output[i][j] = maskArray1d(arrayOneD, maskOneD)
+
+    return output
+
+
+@njit(nogil=True)
+def maskArray1d(array, mask):
+    return array[mask]
+
+
+@njit()
+def rmOutliersInter(array: np.ndarray, m=1.5):
+    if m == 0:
+        raise Exception('m can\'t be equal to 0.')
+
+    interquartile = nan_percentile_axis0(array, 75) - nan_percentile_axis0(array, 25)
+    inf = nan_percentile_axis0(array, 25)-m*interquartile
+    sup = nan_percentile_axis0(array, 75)+m*interquartile
+    mask = (array >= inf) & (array <= sup)
+    maskedArray = array[mask]
+
+    return (mask,  maskedArray)
+
+
+@njit()
+def rmOutliersSigma(array: np.ndarray, m=1.5, axis=0):
+    if m == 0:
+        raise Exception('m can\'t be equal to 0.')
+
+    if (array.ndim == 2):
+        mask = np.abs(array-nanmean(array, axis=axis)) <= m * nanstd(array, axis=axis)
+    else:
+        mask = np.abs(array-np.nanmean(array)) <= m * np.nanstd(array)
+
+    maskedArray = array[mask]
+
+    return (mask,  maskedArray)
+
+
+@njit()
+def rmOutliersMad(array: np.ndarray, m=1.5, axis=0):
+    if m == 0:
+        raise Exception('m can\'t be equal to 0.')
+
+    mask = np.abs(array-nanmean(array, axis=axis)) <= m * nanstd(array, axis=axis)
+
+    if (array.ndim == 2):
+        median = nanmedian(array, axis=axis)
+        mad = nanmedian(np.abs(array-median))
+    else:
+        median = np.nanmedian(array)
+        mad = np.nanmedian(np.abs(array-median))
+
+    mask = np.abs(array-median) <= m * mad * 1.48
+    maskedArray = array[mask]
+
+    return (mask,  maskedArray)
+
+
+@njit()
+def rmOutliersInterWithBorders(array: np.ndarray, m=1.5):
+    if m == 0:
+        raise Exception('m can\'t be equal to 0.')
+
+    interquartile = nan_percentile_axis0(array, 75) - nan_percentile_axis0(array, 25)
+    inf = nan_percentile_axis0(array, 25)-m*interquartile
+    sup = nan_percentile_axis0(array, 75)+m*interquartile
+    mask = (array >= inf) & (array <= sup)
+    maskedArray = array[mask] if array.ndim == 1 else filter3D(array, mask)
+
+    return (mask,  maskedArray, sup, inf)
+
+
+@njit()
+def rmOutliersSigmaWithBorders(array: np.ndarray, m=1.5, axis=0):
+    if m == 0:
+        raise Exception('m can\'t be equal to 0.')
+
+    if (array.ndim == 2):
+        sup = nanmean(array, axis=axis) + m * nanstd(array, axis=axis)
+        inf = nanmean(array, axis=axis) - m * nanstd(array, axis=axis)
+        mask = np.abs(array-nanmean(array, axis=axis)) <= m * nanstd(array, axis=axis)
+    else:
+        sup = np.nanmean(array) + m * np.nanstd(array)
+        inf = np.nanmean(array) - m * np.nanstd(array)
+        mask = np.abs(array-np.nanmean(array)) <= m * np.nanstd(array)
+
+    maskedArray = array[mask]
+
+    return (mask,  maskedArray, sup, inf)
+
+
+@njit()
+def rmOutliersMadWithBorders(array: np.ndarray, m=1.5, axis=0):
+    if m == 0:
+        raise Exception('m can\'t be equal to 0.')
+
+    mask = np.abs(array-nanmean(array, axis=axis)) <= m * nanstd(array, axis=axis)
+
+    if (array.ndim == 2):
+        median = nanmedian(array, axis=axis)
+        mad = nanmedian(np.abs(array-median))
+    else:
+        median = np.nanmedian(array)
+        mad = np.nanmedian(np.abs(array-median))
+
+    sup = median+m * mad * 1.48
+    inf = median-m * mad * 1.48
+    mask = np.abs(array-median) <= m * mad * 1.48
+    maskedArray = array[mask]
+
+    return (mask,  maskedArray, sup, inf)
+
+
+# def rm_outliers(array: np.ndarray, m=1.5, kind='sigma', axis=0, return_borders=False) -> tuple[np.ndarray, np.ndarray, np.ndarray | np.floating | None, np.ndarray | np.floating | None]:
 
 
 def match_nearest_ndim(array1, array2, max_dist=None, znorm=False):
@@ -94,8 +232,8 @@ def match_nearest_ndim(array1, array2, max_dist=None, znorm=False):
     len1 = len(array1.T)
     len2 = len(array2.T)
 
-    mask_na1 = (1-np.sum(np.isnan(array1), axis=0)).astype('bool')
-    mask_na2 = (1-np.sum(np.isnan(array2), axis=0)).astype('bool')
+    mask_na1 = (1-sumAxisZero.reduce(np.isnan(array1), axis=0)).astype('bool')
+    mask_na2 = (1-sumAxisZero.reduce(np.isnan(array2), axis=0)).astype('bool')
 
     index1 = np.arange(len1)[mask_na1]
     index2 = np.arange(len2)[mask_na2]
@@ -107,7 +245,7 @@ def match_nearest_ndim(array1, array2, max_dist=None, znorm=False):
     liste2 = liste2.astype('int')
 
     if znorm:
-        med_vec = np.median(np.hstack([array1, array2]), axis=1)[:, np.newaxis]
+        med_vec = nanmedian(np.hstack([array1, array2]), axis=1)[:, np.newaxis]
         mad_vec = myfmad(np.hstack([array1, array2]), axis=1)[:, np.newaxis]
     else:
         med_vec = 0
@@ -132,7 +270,7 @@ def match_nearest_ndim(array1, array2, max_dist=None, znorm=False):
     array1_r = array1 + 0.001*np.random.randn(len(array1.T))*dmin[:, np.newaxis]
     array2_r = array2 + 0.001*np.random.randn(len(array2.T))*dmin2[:, np.newaxis]
     # match nearest
-    m = np.sum([abs(array2_r[j]-array1_r[j][:, np.newaxis]) for j in np.arange(len(array1_r))], axis=0)
+    m = sumAxisZero.reduce([np.abs(array2_r[j]-array1_r[j][:, np.newaxis]) for j in np.arange(len(array1_r))], axis=0)
     arg1 = np.argmin(m, axis=0)
     arg2 = np.argmin(m, axis=1)
     mask = (np.arange(len(arg1)) == arg2[arg1])
@@ -145,7 +283,7 @@ def match_nearest_ndim(array1, array2, max_dist=None, znorm=False):
     array2_k = array1_k*mad_vec
 
     array1_k = array1_k+med_vec
-    array2_k = array1_2+med_vec
+    array2_k = array2_k+med_vec
 
     liste_idx1 = index1[liste_idx1]
     liste_idx2 = index2[liste_idx2]
@@ -154,6 +292,6 @@ def match_nearest_ndim(array1, array2, max_dist=None, znorm=False):
                      array1_k.T, array2_k.T, (array1_k-array2_k).T])
 
     if max_dist is not None:
-        mat = mat[(abs(mat[:, -1]) < max_dist)]
+        mat = mat[(np.abs(mat[:, -1]) < max_dist)]
 
     return mat

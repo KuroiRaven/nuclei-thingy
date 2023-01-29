@@ -1,5 +1,5 @@
 from services.numbaUtils import getDistances, getSpots
-from services.utils import match_nearest_ndim, rm_outliers
+from services.utils import match_nearest_ndim
 from models.returnValueThread import ReturnValueThread
 from models.analysis import Analysis
 from tqdm import tqdm
@@ -7,6 +7,7 @@ from sklearn.cluster import KMeans
 from mpl_toolkits.mplot3d import Axes3D
 import pandas as pd
 import numpy as np
+import numpy.typing as npt
 import matplotlib.pylab as plt
 import matplotlib
 from time import time
@@ -45,13 +46,16 @@ for time_index in time_indexes:
         tab = np.array([x, y, slideId*np.ones(len(x))]).T
         return tab
 
-    locations = tuple(map(getLocations, range(len(voxelNormalized))))
-    locations = np.vstack(locations)
+    locationsTuple = tuple(map(getLocations, range(len(voxelNormalized))))
+    locations = np.vstack(locationsTuple).astype(dtype=np.float64)
 
+    recenterX = analyzis.imageData.sizes.x/2
+    recenterY = analyzis.imageData.sizes.y/2
+    recenterZ = analyzis.imageData.sizes.z/2
     # Recenter the axes + Z axes converted to pixel
-    locations[:, 0] -= analyzis.imageData.sizes.x/2
-    locations[:, 1] -= analyzis.imageData.sizes.y/2
-    locations[:, 2] -= analyzis.imageData.sizes.z/2
+    locations[:, 0] -= recenterX
+    locations[:, 1] -= recenterY
+    locations[:, 2] -= recenterZ
     locations[:, 2] *= analyzis.imageData.slicePixelRatio
 
     # Removes all noises
@@ -96,19 +100,21 @@ for time_index in time_indexes:
 
 all_files = np.sort(glob.glob('./Output_table_time_index*csv'))
 
+dataFrame = pd.concat([])
+
 for i, f in enumerate(all_files):
-    f_temp = pd.read_csv(f, index_col=0)
+    fileTemp = pd.read_csv(f, index_col=0)
     if not i:
-        dataframe = f_temp.copy()
+        dataFrame = fileTemp.copy()
     else:
-        dataframe = pd.concat([dataframe, f_temp])
+        dataFrame = pd.concat([dataFrame, fileTemp])
 
 mapping = {}
 c = -1
 for timeIndex1, timeIndex2 in zip(time_indexes[0:-1], time_indexes[1:]):
     c += 1
-    uniqueVals1 = dataframe.loc[dataframe['time'] == timeIndex1, ['cell_x', 'cell_y', 'cell_z', 'cell']]
-    uniqueVals2 = dataframe.loc[dataframe['time'] == timeIndex2, ['cell_x', 'cell_y', 'cell_z', 'cell']]
+    uniqueVals1 = dataFrame.loc[dataFrame['time'] == timeIndex1, ['cell_x', 'cell_y', 'cell_z', 'cell']]
+    uniqueVals2 = dataFrame.loc[dataFrame['time'] == timeIndex2, ['cell_x', 'cell_y', 'cell_z', 'cell']]
     uniqueCellsByTimeFrame1 = np.array(uniqueVals1.drop_duplicates(subset=['cell'])[['cell_x', 'cell_y', 'cell_z']])
     uniqueCellsByTimeFrame2 = np.array(uniqueVals2.drop_duplicates(subset=['cell'])[['cell_x', 'cell_y', 'cell_z']])
 
@@ -137,11 +143,11 @@ for timeIndex1, timeIndex2 in zip(time_indexes[0:-1], time_indexes[1:]):
     mapping[timeIndex2] = np.array([np.arange(len(index2)), name2]).T
 
 for timeIndex2, values in mapping.items():
-    sub_dataframe = np.array(dataframe.loc[dataframe['time'] == timeIndex2, 'cell'])
+    sub_dataframe = np.array(dataFrame.loc[dataFrame['time'] == timeIndex2, 'cell'])
     real_cell_name = mapping[timeIndex2][:, 1][sub_dataframe-1]
-    dataframe.loc[dataframe['time'] == timeIndex2, 'cell'] = real_cell_name
+    dataFrame.loc[dataFrame['time'] == timeIndex2, 'cell'] = real_cell_name
 
-dataframe.to_csv('./Output_table_final.csv')
+dataFrame.to_csv('./Output_table_final.csv')
 
 
 """

@@ -1,5 +1,5 @@
 from numpy import array as npArray
-from numpy import nanmedian, ndarray, unique, sort, arange, sqrt, where, mean, in1d, newaxis
+from numpy import nanmedian, ndarray, unique, sort, arange, sqrt, where, mean, in1d, newaxis, empty
 from services.utils import myfmad
 from sklearn.cluster import KMeans
 import pandas as pd
@@ -8,7 +8,7 @@ from time import time
 from .nucleus import Nucleus
 from services.settings import minClustervolume, minRadiusCell, approximateAmountOfNuclei
 from services.numbaUtils import getDipoles
-from services.utils import rm_outliers
+from services.utils import rmOutliersSigma
 
 
 class Frame(object):
@@ -45,7 +45,7 @@ class Frame(object):
 
         # Keeps all the points that revolve to a cluster that has more than
         maskMinThreshold = (nb_points > minClustervolume)
-        maskOutliers = rm_outliers(standard_cluster)[0]
+        maskOutliers = rmOutliersSigma(standard_cluster)[0]
         mask = maskMinThreshold & maskOutliers
 
         clusterCentersEnoughPoints = tempClusterCenters[mask]  # removes falsly found centers
@@ -79,7 +79,7 @@ class Frame(object):
         startTime = time()
         kmeans = KMeans(n_clusters=approximateAmountOfNuclei, init='k-means++', random_state=0).fit(dataFrame)
         clusterCenters: ndarray = kmeans.cluster_centers_
-        pixelClusterIds: ndarray = kmeans.labels_  # correspondance à un cluster
+        pixelClusterIds: ndarray = empty(0) if kmeans.labels_ is None else kmeans.labels_  # correspondance à un cluster
         uniqueLabels = unique(pixelClusterIds)
         print("[INFO] GetClusterCenters: " + str(time() - startTime))
         return (clusterCenters, pixelClusterIds, uniqueLabels)
